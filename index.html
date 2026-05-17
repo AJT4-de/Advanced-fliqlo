@@ -1,0 +1,1387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flip Clock App</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect x='5' y='20' width='40' height='60' rx='8' fill='%23121212' stroke='%23dcdcdc' stroke-width='2'/><rect x='55' y='20' width='40' height='60' rx='8' fill='%23121212' stroke='%23dcdcdc' stroke-width='2'/><line x1='0' y1='50' x2='100' y2='50' stroke='%23000000' stroke-width='4'/></svg>">
+  <style>
+    /* Base Variables */
+    :root {
+      --bg-color: #000000;
+      --card-color: #121212;
+      --text-color: #dcdcdc;
+      --font: 'Oswald', sans-serif;
+      --user-scale: 1;
+      --fluid-scale: 1; /* updated dynamically by JS based on window size */
+      --final-scale: calc(var(--user-scale) * var(--fluid-scale));
+      
+      --card-radius: calc(15px * var(--final-scale));
+      --font-size: calc(150px * var(--final-scale));
+      --card-height: calc(var(--font-size) * 1.3);
+      --card-width: calc(var(--font-size) * 0.9);
+      --spacing: calc(8px * var(--final-scale));
+      --gap: calc(40px * var(--final-scale));
+      --group-gap: calc(120px * var(--final-scale));
+    }
+
+    @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600&family=Orbitron:wght@600&family=Oswald:wght@600&family=Roboto+Mono:wght@600&family=Share+Tech+Mono&display=swap');
+
+    /* Global Resets & Body */
+    *, *::before, *::after {
+      box-sizing: border-box;
+    }
+    
+    body {
+      margin: 0; 
+      padding: 0;
+      background: var(--bg-color);
+      color: var(--text-color);
+      font-family: var(--font);
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      overflow: hidden; /* prevents scrollbars since scaling handles fit */
+      font-weight: 600;
+      transition: background 0.3s ease, color 0.3s ease;
+      font-variant-numeric: tabular-nums;
+    }
+    
+    /* ScreenSaver Idle Logic */
+    body.idle {
+      cursor: none;
+    }
+    body.idle .indicator {
+      opacity: 0;
+      transition: opacity 1s ease;
+    }
+
+    /* Layout Containers */
+    .app-container {
+      display: flex;
+      flex-direction: column;
+      gap: calc(var(--group-gap) * 0.5); /* Master gap handling vertical separation */
+      align-items: center;
+      justify-content: center;
+      transform-origin: center center;
+    }
+
+    .clocks-wrapper {
+      display: flex;
+      gap: var(--group-gap);
+      align-items: center;
+      justify-content: center;
+    }
+
+    .date-display {
+      font-family: var(--date-font, sans-serif);
+      font-size: calc(32px * var(--final-scale));
+      font-weight: 500;
+      opacity: 0.85;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      text-align: center;
+      z-index: 10;
+    }
+
+    .clock-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .clock-label {
+      font-family: sans-serif;
+      font-size: calc(24px * var(--final-scale));
+      font-weight: 400;
+      margin-bottom: calc(20px * var(--final-scale));
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      opacity: 0.5;
+    }
+    
+    .clock-display {
+      display: flex;
+      gap: var(--gap);
+      position: relative; /* Anchor for am/pm indicators */
+    }
+    
+    .digit-pair {
+      display: flex;
+      gap: var(--spacing);
+    }
+
+    .ampm-indicator {
+      position: absolute;
+      left: calc(12px * var(--final-scale)); /* Overlays precisely inside the boundaries of the first card */
+      font-size: calc(18px * var(--final-scale)); /* Minimized to match mechanical indicator scales */
+      font-family: sans-serif; /* Unlinks from custom fonts for classic aesthetic */
+      font-weight: 600;
+      color: var(--text-color);
+      opacity: 0.9;
+      text-transform: uppercase;
+      line-height: 1;
+      z-index: 20; /* Keep securely above flip animations */
+      pointer-events: none;
+      transition: top 0.3s, bottom 0.3s;
+    }
+    
+    .ampm-indicator.am {
+      top: calc(15px * var(--final-scale));
+      bottom: auto;
+    }
+    
+    .ampm-indicator.pm {
+      bottom: calc(15px * var(--final-scale));
+      top: auto;
+    }
+
+    /* 3D Flip Card Styles */
+    .flip-card {
+      position: relative;
+      width: var(--card-width);
+      height: var(--card-height);
+      background-color: transparent; /* Parts are filled, not wrapper */
+      perspective: 1500px;
+      font-size: var(--font-size);
+      color: var(--text-color);
+      line-height: var(--card-height);
+      text-align: center;
+      user-select: none;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+      border-radius: var(--card-radius);
+    }
+
+    /* Center seam mimicking mechanical spit */
+    .flip-card::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: -2%;
+      width: 104%;
+      height: calc(3px * var(--final-scale));
+      background: var(--bg-color);
+      margin-top: calc(-1.5px * var(--final-scale));
+      z-index: 10;
+      border-radius: calc(2px * var(--final-scale));
+    }
+
+    .digital-half {
+      position: absolute;
+      left: 0;
+      width: 100%;
+      height: 50%;
+      background-color: var(--card-color);
+      overflow: hidden;
+      border-radius: var(--card-radius);
+      transform-style: preserve-3d;
+      backface-visibility: hidden;
+    }
+
+    .digital-half::before {
+      content: '';
+      position: absolute;
+      left: 0; right: 0; top: 0; bottom: 0;
+      background: linear-gradient(180deg, rgba(255,255,255,0.02) 0%, rgba(0,0,0,0.1) 100%);
+      pointer-events: none;
+    }
+
+    .top-half {
+      top: 0;
+      transform-origin: bottom;
+      border-bottom-left-radius: 0;
+      border-bottom-right-radius: 0;
+    }
+    
+    .top-half span {
+      position: absolute;
+      top: 0; left: 0; width: 100%; 
+      height: var(--card-height);
+      display: flex; justify-content: center; align-items: center;
+    }
+
+    .bottom-half {
+      bottom: 0;
+      transform-origin: top;
+      border-top-left-radius: 0;
+      border-top-right-radius: 0;
+      box-shadow: inset 0 2px 5px rgba(0,0,0,0.4);
+    }
+    
+    .bottom-half span {
+      position: absolute;
+      bottom: 0; left: 0; width: 100%; 
+      height: var(--card-height);
+      display: flex; justify-content: center; align-items: center;
+    }
+
+    /* Z-index layering for standard and flipped cards */
+    .top-flip {
+      z-index: 4;
+      transform: rotateX(0deg);
+    }
+    .bottom-flip {
+      z-index: 3;
+      transform: rotateX(180deg);
+    }
+    .top-back {
+      z-index: 2;
+    }
+    .bottom-back {
+      z-index: 1;
+    }
+
+    /* 3D Keyframe Execution attached via script class swap */
+    .flip-card.flipping .top-flip {
+      transform: rotateX(-180deg);
+      transition: transform 0.6s cubic-bezier(0.37, 0.0, 0.25, 1);
+    }
+    .flip-card.flipping .bottom-flip {
+      transform: rotateX(0deg);
+      transition: transform 0.6s cubic-bezier(0.37, 0.0, 0.25, 1);
+    }
+
+    /* Settings Panel */
+    .settings-panel {
+      position: fixed;
+      top: 0; left: 0; height: 100%;
+      width: 340px;
+      background: rgba(18, 18, 18, 0.95);
+      color: #eaeaea;
+      backdrop-filter: blur(15px);
+      transform: translateX(-100%);
+      transition: transform 0.35s cubic-bezier(0.2, 0, 0, 1);
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+      font-family: 'Montserrat', sans-serif;
+      font-weight: 400;
+      box-shadow: 10px 0 30px rgba(0,0,0,0.8);
+      overflow-y: auto;
+      border-right: 1px solid rgba(255,255,255,0.05);
+    }
+    
+    .settings-panel.open {
+      transform: translateX(0);
+    }
+
+    .settings-hitbox {
+      position: fixed;
+      top: 0; left: 0; height: 100%; width: 20px;
+      z-index: 99;
+      background: transparent;
+      border: none;
+      cursor: w-resize;
+    }
+
+    .settings-content {
+      padding: 2.5rem 2rem;
+      position: relative;
+    }
+
+    .close-btn {
+      position: absolute;
+      top: 20px; right: 20px;
+      background: transparent;
+      color: #aaa;
+      border: none;
+      font-size: 2rem;
+      cursor: pointer;
+      line-height: 1;
+    }
+    .close-btn:hover { color: #fff; }
+
+    .settings-reset-btn {
+      margin-top: 1.5rem;
+      width: 100%;
+      padding: 10px;
+      background: #c62828;
+      color: white;
+      border: none;
+      border-radius: 30px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: background 0.3s;
+    }
+    .settings-reset-btn:hover { background: #d32f2f; }
+
+    .settings-content h2 {
+      margin-top: 0;
+      margin-bottom: 2rem;
+      font-size: 1.5rem;
+      font-weight: 500;
+      letter-spacing: 0.5px;
+    }
+    
+    .setting-group {
+      margin-bottom: 1.8rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.8rem;
+    }
+    
+    .setting-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.95rem;
+    }
+    
+    input[type="color"] { 
+      background: none; 
+      border: 1px solid rgba(255,255,255,0.2); 
+      border-radius: 4px;
+      cursor: pointer; 
+      height: 32px; width: 60px; 
+      padding: 2px;
+    }
+    
+    select {
+      width: 140px; 
+      background: #2a2a2a;
+      color: #fff;
+      border: 1px solid #444;
+      border-radius: 20px;
+      padding: 6px 12px;
+      font-size: 0.9rem;
+    }
+
+    input[type="range"] { 
+      width: 100px;
+      appearance: none;
+      -webkit-appearance: none;
+      height: 6px;
+      background: #444;
+      border-radius: 4px;
+      outline: none;
+      cursor: pointer;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #bbb;
+      cursor: pointer;
+      transition: transform 0.2s;
+    }
+    input[type="range"]::-webkit-slider-thumb:hover {
+      transform: scale(1.2);
+      background: #fff;
+    }
+
+    input[type="checkbox"] {
+      appearance: none;
+      -webkit-appearance: none;
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      border: 2px solid #fff;
+      background: transparent;
+      outline: none;
+      cursor: pointer;
+      position: relative;
+      transition: background 0.3s, border-color 0.3s;
+    }
+    input[type="checkbox"]:checked {
+      background: #666;
+      border-color: #666;
+    }
+    input[type="checkbox"]:checked::after {
+      content: '';
+      position: absolute;
+      left: 6px; top: 2px;
+      width: 5px; height: 10px;
+      border: solid #fff;
+      border-width: 0 2px 2px 0;
+      transform: rotate(45deg);
+    }
+
+    /* Custom Select Component Framework */
+    .custom-select-container {
+      position: relative;
+      font-size: 0.9rem;
+      user-select: none;
+    }
+    
+    .custom-select-trigger {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #2a2a2a;
+      color: #fff;
+      border: 1px solid #444;
+      border-radius: 20px;
+      padding: 6px 14px;
+      cursor: pointer;
+      position: relative;
+      z-index: 5;
+      transition: border-radius 0.3s ease;
+    }
+    
+    .custom-select-arrow {
+      width: 8px; height: 8px;
+      border: solid #bbb;
+      border-width: 0 2px 2px 0;
+      transform: rotate(45deg) translateY(-2px);
+      transition: transform 0.3s ease;
+      margin-left: 10px;
+    }
+
+    .custom-select-container.open .custom-select-arrow {
+      transform: rotate(-135deg) translateY(-2px);
+    }
+    
+    .custom-select-container.open .custom-select-trigger {
+      border-bottom-left-radius: 4px;
+      border-bottom-right-radius: 4px;
+    }
+
+    .custom-select-options {
+      position: absolute;
+      top: 100%; left: 0; right: 0;
+      background: #2a2a2a;
+      border: 1px solid #444;
+      border-top: none;
+      border-bottom-left-radius: 20px;
+      border-bottom-right-radius: 20px;
+      overflow-y: auto;
+      max-height: 205px;
+      z-index: 999;
+      box-shadow: 0 10px 20px rgba(0,0,0,0.5);
+      
+      display: none;
+      opacity: 0;
+      transform: translateY(-10px);
+    }
+    
+    .custom-select-options::-webkit-scrollbar { width: 6px; }
+    .custom-select-options::-webkit-scrollbar-thumb { background: #555; border-radius: 10px; }
+
+    .custom-select-container.open .custom-select-options {
+      display: block;
+      animation: customDropdownIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    @keyframes customDropdownIn {
+      0% { opacity: 0; transform: translateY(-10px); }
+      100% { opacity: 1; transform: translateY(0); }
+    }
+
+    .custom-select-option {
+      padding: 8px 14px;
+      cursor: pointer;
+      color: #ccc;
+      transition: background 0.2s, color 0.2s;
+    }
+    .custom-select-option:last-child {
+      border-bottom-left-radius: 20px;
+      border-bottom-right-radius: 20px;
+    }
+    .custom-select-option:hover {
+      background: #444;
+      color: #fff;
+    }
+
+    /* Online/Offline Status Indicator */
+    .indicator {
+      position: fixed;
+      top: 25px;
+      right: 25px;
+      font-family: -apple-system, sans-serif;
+      font-size: 0.85rem;
+      font-weight: 500;
+      padding: 8px 14px;
+      border-radius: 30px;
+      background: rgba(255,255,255,0.05);
+      color: var(--text-color);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      z-index: 50;
+      opacity: 0.6;
+      transition: opacity 0.3s;
+    }
+    .indicator:hover { opacity: 1; }
+    
+    .indicator.online .dot { background: #4caf50; box-shadow: 0 0 8px #4caf50; }
+    .indicator.offline .dot { background: #f44336; box-shadow: 0 0 8px #f44336; }
+    .indicator.local .dot { background: #757575; }
+    
+    .indicator .dot {
+      width: 10px; height: 10px; border-radius: 50%;
+    }
+
+    /* Accessibility Live Region hidden visually */
+    .sr-only {
+      position: absolute;
+      width: 1px; height: 1px;
+      padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0, 0, 0, 0);
+      white-space: nowrap; border-width: 0;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Screen reader accessible announcement of time -->
+  <div aria-live="polite" class="sr-only" id="sr-time"></div>
+
+  <!-- Connection Indicator -->
+  <div id="status-indicator" class="indicator local">
+    <div class="dot"></div>
+    <span id="status-text">System Time</span>
+  </div>
+
+  <!-- Settings Handle & Panel -->
+  <button class="settings-hitbox" aria-label="Open Settings" onmouseenter="document.querySelector('.settings-panel').classList.add('open')" onclick="document.querySelector('.settings-panel').classList.add('open')"></button>
+  <div class="settings-panel">
+    <div class="settings-content">
+      <button class="close-btn" aria-label="Close Settings" onclick="document.querySelector('.settings-panel').classList.remove('open')">×</button>
+      <h2>Settings</h2>
+      
+      <form id="settings-form">
+        <div class="setting-group">
+          <label class="setting-row">
+            <span>Font Family</span>
+            <select id="font">
+              <option value="'Oswald', sans-serif">Oswald</option>
+              <option value="'Roboto Mono', monospace">Roboto Mono</option>
+              <option value="'Share Tech Mono', monospace">Share Tech Mono</option>
+              <option value="'Orbitron', sans-serif">Orbitron</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="setting-group">
+          <label class="setting-row">
+            <span>Background Color</span>
+            <input type="color" id="bgColor" value="#000000">
+          </label>
+          <label class="setting-row">
+            <span>Card Color</span>
+            <input type="color" id="cardColor" value="#121212">
+          </label>
+          <label class="setting-row">
+            <span>Text Color</span>
+            <input type="color" id="textColor" value="#dcdcdc">
+          </label>
+        </div>
+        
+        <div class="setting-group">
+          <label class="setting-row" style="gap: 10px;">
+            <span style="flex: 1;">Global Scale</span>
+            <span style="font-weight: 700; opacity: 0.6; cursor: pointer; font-size: 1.2rem; user-select: none;" onclick="document.getElementById('scale').stepDown(); document.getElementById('scale').dispatchEvent(new Event('input'))">-</span>
+            <input type="range" id="scale" min="0.5" max="2" step="0.1" value="1">
+            <span style="font-weight: 700; opacity: 0.6; cursor: pointer; font-size: 1.2rem; user-select: none;" onclick="document.getElementById('scale').stepUp(); document.getElementById('scale').dispatchEvent(new Event('input'))">+</span>
+          </label>
+        </div>
+
+        <div class="setting-group">
+          <label class="setting-row">
+            <span>Show Seconds</span>
+            <input type="checkbox" id="showSeconds" checked>
+          </label>
+          <label class="setting-row">
+            <span>24-Hour Format</span>
+            <input type="checkbox" id="use24Hour" checked>
+          </label>
+          <label class="setting-row">
+            <span>Sync Online Time</span>
+            <input type="checkbox" id="onlineTime" checked>
+          </label>
+          <label class="setting-row">
+            <span>Dual Time Mode</span>
+            <input type="checkbox" id="dualTime">
+          </label>
+        </div>
+        
+        <div class="setting-group" id="localLabelGroup">
+          <label class="setting-row" style="flex-wrap: wrap; gap: 8px;">
+            <span>Local Location Label</span>
+            <input type="text" id="localLabel" placeholder="Auto-detect or custom..." style="width:100%; background:#2a2a2a; color:#fff; border:1px solid #444; border-radius:20px; padding:6px 12px; font-size:0.9rem;">
+          </label>
+        </div>
+
+        <div class="setting-group" id="dualTimeLayoutGroup" style="display:none;">
+          <label class="setting-row">
+            <span>Dual Time Layout</span>
+            <select id="dualTimeLayout" style="width:100%;">
+              <option value="row">Side-by-Side</option>
+              <option value="column">Top-and-Bottom</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="setting-group" id="dualTimeOrderGroup" style="display:none;">
+          <label class="setting-row">
+            <span>Clock Order</span>
+            <select id="dualTimeOrder" style="width:100%;">
+              <option value="home-first">Home First</option>
+              <option value="local-first">Local First</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="setting-group" style="padding-top: 15px; border-top: 1px solid #333; margin-top: 10px;">
+          <label class="setting-row">
+            <span>Show Day & Date</span>
+            <input type="checkbox" id="showDate">
+          </label>
+        </div>
+
+        <div class="setting-group" id="datePositionGroup" style="display:none;">
+          <label class="setting-row">
+            <span>Date Position</span>
+            <select id="datePosition" style="width:100%;">
+              <option value="bottom">Bottom</option>
+              <option value="top">Top</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="setting-group" id="dateFontGroup" style="display:none;">
+          <label class="setting-row">
+            <span>Date Font</span>
+            <select id="dateFont" style="width:100%;">
+              <option value="sans-serif">System Sans-Serif</option>
+              <option value="monospace">System Monospace</option>
+              <option value="'Montserrat', sans-serif">Montserrat</option>
+              <option value="'Oswald', sans-serif">Oswald</option>
+              <option value="'Roboto Mono', monospace">Roboto Mono</option>
+              <option value="'Share Tech Mono', monospace">Share Tech Mono</option>
+              <option value="'Orbitron', sans-serif">Orbitron</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="setting-group" id="dateStyleGroup" style="display:none;">
+          <label class="setting-row">
+            <span>Date Format</span>
+            <select id="dateStyle" style="width:100%;">
+              <option value="long">Long (e.g. April 16)</option>
+              <option value="short">Short (e.g. Apr 16)</option>
+              <option value="numeric">Numeric (e.g. 04/16)</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="setting-group" id="dateIncludeDayGroup" style="display:none;">
+          <label class="setting-row">
+            <span>Include Day of Week</span>
+            <input type="checkbox" id="dateIncludeDay">
+          </label>
+        </div>
+        
+        <div class="setting-group" id="dateIncludeYearGroup" style="display:none;">
+          <label class="setting-row">
+            <span>Include Year</span>
+            <input type="checkbox" id="dateIncludeYear">
+          </label>
+        </div>
+
+        <div class="setting-group" id="homeTzGroup" style="display:none;">
+          <label class="setting-row" style="flex-wrap: wrap; gap: 8px;">
+            <span>Home Timezone</span>
+            <select id="homeTimezone" style="width:100%;">
+              <option value="America/New_York">New York (EST)</option>
+              <option value="America/Chicago">Chicago (CST)</option>
+              <option value="America/Denver">Denver (MST)</option>
+              <option value="America/Los_Angeles">Los Angeles (PST)</option>
+              <option value="America/Sao_Paulo">Sao Paulo (BRT)</option>
+              <option value="Europe/London">London (GMT)</option>
+              <option value="Europe/Paris">Paris (CET)</option>
+              <option value="Europe/Berlin">Berlin (CET)</option>
+              <option value="Europe/Moscow">Moscow (MSK)</option>
+              <option value="Africa/Cairo">Cairo (EET)</option>
+              <option value="Africa/Johannesburg">Johannesburg (SAST)</option>
+              <option value="Asia/Dubai">Dubai (GST)</option>
+              <option value="Asia/Kolkata">New Delhi (IST)</option>
+              <option value="Asia/Bangkok">Bangkok (ICT)</option>
+              <option value="Asia/Singapore">Singapore (SGT)</option>
+              <option value="Asia/Shanghai">Shanghai (CST)</option>
+              <option value="Asia/Tokyo">Tokyo (JST)</option>
+              <option value="Australia/Sydney">Sydney (AEST)</option>
+              <option value="Pacific/Auckland">Auckland (NZST)</option>
+              <option value="UTC">Universal Time (UTC)</option>
+            </select>
+          </label>
+        </div>
+      </form>
+      
+      <button class="settings-reset-btn" onclick="resetSettings()">Reset Settings</button>
+
+      <div style="margin-top: 2rem; font-size: 0.8rem; color: #666; font-family: sans-serif;">
+        <p>Shortcuts:<br>
+        - Hover left edge or press <b>S</b> for settings.<br>
+        - Double-click or press <b>F</b> for fullscreen.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dynamic Application Root -->
+  <div id="app" class="app-container"></div>
+
+  <!-- Template for JS rendering -->
+  <template id="flip-template">
+    <div class="flip-card">
+      <div class="digital-half top-half top-back" aria-hidden="true"><span>0</span></div>
+      <div class="digital-half bottom-half bottom-back" aria-hidden="true"><span>0</span></div>
+      <div class="digital-half top-half top-flip" aria-hidden="true"><span>0</span></div>
+      <div class="digital-half bottom-half bottom-flip" aria-hidden="true"><span>0</span></div>
+    </div>
+  </template>
+
+  <script>
+    /**
+     * FLIQLO-STYLE FLIP CLOCK
+     * -----------------------
+     * Single-file architecture preventing global state leaks and fully utilizing Vanilla JS
+     * cleanly separated into logic layers (State, Time Engine, DOM Engine, Interactivity).
+     */
+
+    // --- STATE MANAGEMENT ---
+    const defaultSettings = {
+      font: "'Oswald', sans-serif",
+      bgColor: "#000000",
+      cardColor: "#121212",
+      textColor: "#dcdcdc",
+      scale: "1",
+      showSeconds: true,
+      use24Hour: true,
+      onlineTime: true,
+      dualTime: false,
+      dualTimeLayout: "row",
+      dualTimeOrder: 'local-first',
+      homeTimezone: "America/New_York",
+      localLabel: "",
+      showDate: false,
+      datePosition: 'bottom',
+      dateFont: "sans-serif",
+      dateStyle: 'long',
+      dateIncludeDay: true,
+      dateIncludeYear: false
+    };
+
+    let settings = { ...defaultSettings };
+    let clockInstances = { local: [], home: [] };
+    let prevStructKey = null;
+    
+    // Time tracking variables
+    let timeOffsetMs = 0;
+    let isOnline = false;
+    let lastRenderedSec = -1;
+
+    function initSettings() {
+      const stored = localStorage.getItem('fliqlo-settings');
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          settings = { ...defaultSettings, ...parsed };
+        } catch(e) { console.error("Could not parse settings", e); }
+      }
+      
+      // Map loaded state back to UI inputs
+      document.querySelectorAll('.settings-panel input, .settings-panel select').forEach(input => {
+        const id = input.id;
+        if (!id || !(id in settings)) return;
+        if (input.type === 'checkbox') {
+          input.checked = settings[id];
+        } else {
+          input.value = settings[id];
+          if (input.tagName === 'SELECT') {
+            input.dispatchEvent(new Event('change'));
+          }
+        }
+      });
+    }
+
+    function resetSettings() {
+      if (!confirm('Are you sure you want to reset all settings to defaults?')) return;
+      localStorage.removeItem('fliqlo-settings');
+      settings = { ...defaultSettings };
+      
+      document.querySelectorAll('.settings-panel input, .settings-panel select').forEach(input => {
+        const id = input.id;
+        if (!id || !(id in settings)) return;
+        if (input.type === 'checkbox') {
+          input.checked = settings[id];
+        } else {
+          input.value = settings[id];
+          if (input.tagName === 'SELECT') {
+            input.dispatchEvent(new Event('change'));
+          }
+        }
+      });
+      
+      applySettings();
+      prevStructKey = null; 
+      lastRenderedSec = -1; 
+    }
+
+    function formatTimezoneName(tz) {
+      if (tz === 'UTC') return 'UTC';
+      if (tz === 'Asia/Kolkata') return 'New Delhi';
+      const parts = tz.split('/');
+      return parts[parts.length - 1].replace(/_/g, ' ');
+    }
+
+    function applySettings() {
+      const rootStyles = document.documentElement.style;
+      rootStyles.setProperty('--bg-color', settings.bgColor);
+      rootStyles.setProperty('--card-color', settings.cardColor);
+      rootStyles.setProperty('--text-color', settings.textColor);
+      rootStyles.setProperty('--font', settings.font);
+      rootStyles.setProperty('--user-scale', settings.scale);
+      rootStyles.setProperty('--date-font', settings.dateFont);
+      
+      const isDual = settings.dualTime;
+      document.getElementById('homeTzGroup').style.display = isDual ? 'flex' : 'none';
+      document.getElementById('dualTimeLayoutGroup').style.display = isDual ? 'flex' : 'none';
+      document.getElementById('dualTimeOrderGroup').style.display = isDual ? 'flex' : 'none';
+      
+      const sDate = settings.showDate;
+      const sDatePosValid = sDate && (!isDual || settings.dualTimeLayout !== 'column');
+      document.getElementById('datePositionGroup').style.display = sDatePosValid ? 'flex' : 'none';
+      document.getElementById('dateFontGroup').style.display = sDate ? 'flex' : 'none';
+      document.getElementById('dateStyleGroup').style.display = sDate ? 'flex' : 'none';
+      document.getElementById('dateIncludeDayGroup').style.display = sDate ? 'flex' : 'none';
+      document.getElementById('dateIncludeYearGroup').style.display = sDate ? 'flex' : 'none';
+
+      localStorage.setItem('fliqlo-settings', JSON.stringify(settings));
+      updateFluidScale();
+    }
+
+    // --- TIME ENGINE ---
+    // Fetch an exact API time offset relative to the local clock immediately
+    async function syncTime() {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      try {
+        const res = await fetch("https://worldtimeapi.org/api/ip", { signal: controller.signal });
+        if (!res.ok) throw new Error("API not ok");
+        const data = await res.json();
+        
+        const onlineTimeMs = new Date(data.datetime).getTime();
+        timeOffsetMs = onlineTimeMs - Date.now();
+        isOnline = true;
+      } catch (err) {
+        console.warn("Time sync failed, gracefully falling back to standard local system time.", err);
+        isOnline = false;
+        timeOffsetMs = 0; // Pure system time mode
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    }
+
+    // Returns a Date instance representing the globally accurate current time
+    function getNow() {
+      return new Date(Date.now() + (settings.onlineTime ? timeOffsetMs : 0));
+    }
+
+    function updateIndicator() {
+      const ind = document.getElementById('status-indicator');
+      const txt = document.getElementById('status-text');
+      
+      if (settings.onlineTime) {
+        ind.className = `indicator ${isOnline ? 'online' : 'offline'}`;
+        txt.innerText = isOnline ? 'Online Time (Synced)' : 'Offline (Fallback)';
+      } else {
+        ind.className = 'indicator local';
+        txt.innerText = 'Local System Time';
+      }
+    }
+
+    function getAMPM(date, timezone) {
+      if (settings.use24Hour) return '';
+      const options = { hour: 'numeric', hour12: true };
+      if (timezone && timezone !== 'local') options.timeZone = timezone;
+      try {
+        const parts = new Intl.DateTimeFormat('en-US', options).formatToParts(date);
+        const ampmPart = parts.find(p => p.type === 'dayPeriod');
+        return ampmPart ? ampmPart.value : '';
+      } catch(e) { return ''; }
+    }
+
+    // Formats a Date object generically depending on seconds requirement and timezone (en-US context handling 00-24 bounds safely)
+    function getTimeString(date, timezone, showSeconds, use24Hour) {
+      const options = { hour: '2-digit', minute: '2-digit', hourCycle: use24Hour ? 'h23' : 'h12' };
+      if (showSeconds) options.second = '2-digit';
+      if (timezone && timezone !== 'local') options.timeZone = timezone;
+      
+      try {
+        const formatter = new Intl.DateTimeFormat('en-US', options);
+        let str = "";
+        formatter.formatToParts(date).forEach(p => {
+          if (['hour', 'minute', 'second'].includes(p.type)) {
+            let val = p.value;
+            // Strip leading zero into blank space elegantly for Fliqlo 12hr authentic styling
+            if (p.type === 'hour' && !use24Hour && val.length < 2) {
+              val = '\u00A0' + val;
+            } else {
+              val = val.padStart(2, '0');
+            }
+            str += val;
+          }
+        });
+        return str;
+      } catch (e) {
+        console.error("Time zone error:", e);
+        return showSeconds ? "000000" : "0000";
+      }
+    }
+
+    // --- DOM ENGINE ---
+    // Manages the smooth CSS flipping of a generic flip-card
+    class FlipDigit {
+      constructor(el) {
+        this.el = el;
+        this.topBack = el.querySelector('.top-back span');
+        this.bottomBack = el.querySelector('.bottom-back span');
+        this.topFlip = el.querySelector('.top-flip span');
+        this.bottomFlip = el.querySelector('.bottom-flip span');
+        
+        this.currentValue = null;
+        this.isFlipping = false;
+        this.cleanupFn = null;
+        
+        this.el.addEventListener('transitionend', (e) => {
+          // Verify property is transform which indicates animation finish
+          if (e.propertyName === 'transform' && this.el.classList.contains('flipping') && this.cleanupFn) {
+            this.cleanupFn();
+          }
+        });
+      }
+
+      update(newValue) {
+        if (this.currentValue === newValue) return;
+        
+        // Force complete previous unfinished transaction to avoid clipping
+        if (this.cleanupFn) this.cleanupFn();
+
+        // Immediate bypass for initial data bind
+        if (this.currentValue === null) {
+          this.currentValue = newValue;
+          this.topFlip.innerText = newValue;
+          this.bottomBack.innerText = newValue;
+          this.topBack.innerText = newValue;
+          this.bottomFlip.innerText = newValue;
+          return;
+        }
+        
+        this.isFlipping = true;
+        this.topFlip.innerText = this.currentValue;
+        this.bottomBack.innerText = this.currentValue;
+        this.topBack.innerText = newValue;
+        this.bottomFlip.innerText = newValue;
+        
+        this.cleanupFn = () => {
+          if (!this.isFlipping) return;
+          this.el.classList.remove('flipping');
+          // Seal state immediately post animation
+          this.topFlip.innerText = newValue;
+          this.bottomBack.innerText = newValue;
+          this.topBack.innerText = newValue;
+          this.bottomFlip.innerText = newValue;
+          this.isFlipping = false;
+          this.currentValue = newValue;
+          this.cleanupFn = null;
+        };
+
+        // Render request batching to guarantee class execution
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            if(this.isFlipping) this.el.classList.add('flipping');
+          });
+        });
+
+        // Fail-safe cleanup mechanism if transition events are dropped (e.g., hidden browser tabs)
+        setTimeout(() => { if(this.cleanupFn) this.cleanupFn(); }, 800);
+      }
+    }
+
+    // Recompiles logical DOM node clusters when core setting modes shift
+    function rebuildDOM(isDual, showSeconds) {
+      const app = document.getElementById('app');
+      app.innerHTML = '';
+      clockInstances = { local: [], home: [] };
+      
+      const clocksWrapper = document.createElement('div');
+      clocksWrapper.className = 'clocks-wrapper';
+      if (isDual && settings.dualTimeLayout === 'column') {
+        clocksWrapper.style.flexDirection = 'column';
+        clocksWrapper.style.gap = settings.showDate ? 'calc(var(--group-gap) * 0.35)' : 'calc(var(--group-gap) * 0.6)';
+      } else {
+        clocksWrapper.style.flexDirection = 'row';
+      }
+
+      const createClockNode = (id, labelText, labelBottom = false) => {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'clock-container';
+        
+        const labelNode = document.createElement('div');
+        labelNode.className = 'clock-label';
+        labelNode.innerText = labelText;
+        
+        const display = document.createElement('div');
+        display.className = 'clock-display';
+        
+        const pairsCount = showSeconds ? 3 : 2;
+        const tmpl = document.getElementById('flip-template');
+        
+        for (let i = 0; i < pairsCount; i++) {
+          const pair = document.createElement('div');
+          pair.className = 'digit-pair';
+          for(let j=0; j<2; j++) {
+            const clone = tmpl.content.cloneNode(true);
+            const card = clone.querySelector('.flip-card');
+            pair.appendChild(card);
+          }
+          display.appendChild(pair);
+        }
+        
+        if (!settings.use24Hour) {
+          const ampmIndicator = document.createElement('div');
+          ampmIndicator.className = 'ampm-indicator';
+          ampmIndicator.id = `${id}-ampm`;
+          display.appendChild(ampmIndicator);
+        }
+
+        if (isDual && !labelBottom) {
+          wrapper.appendChild(labelNode);
+        } else if (isDual && labelBottom) {
+          labelNode.style.marginBottom = '0';
+          labelNode.style.marginTop = 'calc(20px * var(--final-scale))';
+        }
+        wrapper.appendChild(display);
+        if (isDual && labelBottom) wrapper.appendChild(labelNode);
+        
+        const cards = wrapper.querySelectorAll('.flip-card');
+        cards.forEach(card => clockInstances[id].push(new FlipDigit(card)));
+        
+        return wrapper;
+      };
+
+      const createDateNode = () => {
+         const d = document.createElement('div');
+         d.id = 'date-display';
+         d.className = 'date-display';
+         return d;
+      };
+
+      let localName = settings.localLabel.trim();
+      if (!localName) {
+        const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        localName = localTz ? formatTimezoneName(localTz) : 'Local Time';
+      }
+
+      if (isDual) {
+        const isCol = settings.dualTimeLayout === 'column';
+        const isLocalBottom = settings.dualTimeOrder === 'home-first';
+        const isHomeBottom = settings.dualTimeOrder === 'local-first';
+
+        const homeNode = createClockNode('home', formatTimezoneName(settings.homeTimezone), (isCol && settings.showDate && isHomeBottom));
+        const localNode = createClockNode('local', localName, (isCol && settings.showDate && isLocalBottom));
+
+        let topNode, bottomNode;
+        if (settings.dualTimeOrder === 'local-first') {
+          topNode = localNode; bottomNode = homeNode;
+        } else {
+          topNode = homeNode; bottomNode = localNode;
+        }
+        
+        clocksWrapper.appendChild(topNode);
+        
+        if (isCol && settings.showDate) {
+           clocksWrapper.appendChild(createDateNode());
+        }
+        
+        clocksWrapper.appendChild(bottomNode);
+      } else {
+        clocksWrapper.appendChild(createClockNode('local', localName));
+      }
+
+      if (settings.showDate && (!isDual || settings.dualTimeLayout !== 'column')) {
+         const dateNode = createDateNode();
+         if (settings.datePosition === 'top') {
+             app.appendChild(dateNode);
+             app.appendChild(clocksWrapper);
+         } else {
+             app.appendChild(clocksWrapper);
+             app.appendChild(dateNode);
+         }
+      } else {
+         app.appendChild(clocksWrapper);
+      }
+      
+      updateFluidScale();
+    }
+
+    // Handles viewport-relative fluid scaling using mathematical resizing
+    function updateFluidScale() {
+      const isDual = settings.dualTime;
+      const isColumn = isDual && settings.dualTimeLayout === 'column';
+      const pairs = settings.showSeconds ? 3 : 2;
+      
+      const pairWidth = (150 * 0.9 * 2) + 8; // approx 278
+      const clockWidth = pairs * pairWidth + (pairs - 1) * 40;
+      const bufferWidth = 60;
+      
+      let totalWidthEstimation = (isDual && !isColumn) ? (clockWidth * 2 + 120 + bufferWidth) : (clockWidth + bufferWidth);
+      
+      let totalHeightEstimation = 195; // single clock base height
+      if (isDual && isColumn) {
+        totalHeightEstimation = (195 + 44) * 2 + 120; // 2 clocks + labels + gap
+        if (settings.showDate) totalHeightEstimation += 50; 
+      } else if (isDual && !isColumn) {
+        totalHeightEstimation = 195 + 44; // clock + label
+      }
+      if (settings.showDate && (!isDual || !isColumn)) {
+        totalHeightEstimation += 50; // date height + gap
+      }
+      totalHeightEstimation *= 1.1; // padding buffer
+      
+      const widthScale = window.innerWidth / totalWidthEstimation;
+      const heightScale = window.innerHeight / totalHeightEstimation; 
+      
+      let scale = Math.min(widthScale, heightScale) * 0.9; 
+      if (scale > 2.0) scale = 2.0;
+      if (scale < 0.2) scale = 0.2;
+      
+      document.documentElement.style.setProperty('--fluid-scale', scale);
+    }
+    window.addEventListener('resize', updateFluidScale);
+
+    // Primary render pipeline synced continuously
+    function tick() {
+      const date = getNow();
+      const currentSec = Math.floor(date.getTime() / 1000);
+      
+      if (currentSec !== lastRenderedSec) {
+        lastRenderedSec = currentSec;
+        
+        let homeStr = "", localStr = "";
+        if (settings.dualTime) {
+          homeStr = getTimeString(date, settings.homeTimezone, settings.showSeconds, settings.use24Hour);
+        }
+        localStr = getTimeString(date, 'local', settings.showSeconds, settings.use24Hour);
+        
+        const structKey = `dual:${settings.dualTime}-sec:${settings.showSeconds}-tz:${settings.homeTimezone}-layout:${settings.dualTimeLayout}-local:${settings.localLabel}-order:${settings.dualTimeOrder}-24hr:${settings.use24Hour}-date:${settings.showDate}-dpos:${settings.datePosition}`;
+        if (structKey !== prevStructKey) {
+          rebuildDOM(settings.dualTime, settings.showSeconds);
+          prevStructKey = structKey;
+        }
+        
+        // Pass individual character down to each logic instance
+        const updateCards = (id, strArr) => {
+          if (!clockInstances[id]) return;
+          for (let i = 0; i < clockInstances[id].length; i++) {
+            if (strArr[i]) clockInstances[id][i].update(strArr[i]);
+          }
+        };
+        
+        updateCards('local', localStr);
+        if (!settings.use24Hour) {
+          const lAMPM = document.getElementById('local-ampm');
+          if (lAMPM) {
+            const ampmStr = getAMPM(date, 'local');
+            lAMPM.innerText = ampmStr;
+            lAMPM.className = `ampm-indicator ${ampmStr.toLowerCase()}`;
+          }
+        }
+
+        if (settings.dualTime) {
+          updateCards('home', homeStr);
+          if (!settings.use24Hour) {
+            const hAMPM = document.getElementById('home-ampm');
+            if (hAMPM) {
+              const ampmStr = getAMPM(date, settings.homeTimezone);
+              hAMPM.innerText = ampmStr;
+              hAMPM.className = `ampm-indicator ${ampmStr.toLowerCase()}`;
+            }
+          }
+        }
+        
+        if (settings.showDate) {
+          const dateEl = document.getElementById('date-display');
+          if (dateEl) {
+             const opts = {};
+             if (settings.dateIncludeDay) opts.weekday = 'long';
+             
+             if (settings.dateStyle === 'short') {
+                opts.month = 'short';
+                opts.day = 'numeric';
+             } else if (settings.dateStyle === 'numeric') {
+                opts.month = '2-digit';
+                opts.day = '2-digit';
+             } else {
+                opts.month = 'long';
+                opts.day = 'numeric';
+             }
+             
+             if (settings.dateIncludeYear) opts.year = 'numeric';
+
+             try {
+               dateEl.innerText = new Intl.DateTimeFormat(undefined, opts).format(date);
+             } catch(e) {
+               dateEl.innerText = date.toDateString(); 
+             }
+          }
+        }
+
+        // Update SR region for accessibility
+        document.getElementById('sr-time').innerText = `Local time: ${localStr} ${settings.dualTime ? ', Home time: ' + homeStr : ''}`;
+      }
+      
+      requestAnimationFrame(tick);
+    }
+
+    // --- INTERACTIVITY & SCREENSAVER BOUNDARIES ---
+    const settingsPanel = document.querySelector('.settings-panel');
+    let idleTimer;
+
+    function unHideCursor() {
+      document.body.classList.remove('idle');
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        if (!settingsPanel.classList.contains('open')) {
+          document.body.classList.add('idle');
+        }
+      }, 3000);
+    }
+
+    document.addEventListener('mousemove', unHideCursor);
+    document.addEventListener('keydown', unHideCursor);
+
+    function toggleFullscreen() {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(() => {});
+      } else {
+        if(document.exitFullscreen) document.exitFullscreen();
+      }
+    }
+
+    document.addEventListener('dblclick', toggleFullscreen);
+    document.addEventListener('keydown', (e) => {
+      if (e.target.tagName.toLowerCase() === 'input' || e.target.tagName.toLowerCase() === 'select') return;
+      if (e.key.toLowerCase() === 's') settingsPanel.classList.toggle('open');
+      if (e.key.toLowerCase() === 'f') toggleFullscreen();
+    });
+
+    // Form Event Ingestion
+    document.querySelectorAll('.settings-panel input, .settings-panel select').forEach(input => {
+      input.addEventListener('input', (e) => {
+        const id = e.target.id;
+        if (e.target.type === 'checkbox') {
+          settings[id] = e.target.checked;
+          if (id === 'onlineTime' && settings.onlineTime) {
+            syncTime().then(() => {
+              updateIndicator();
+              applySettings();
+            });
+          }
+        } else {
+          settings[id] = e.target.value;
+        }
+        
+        applySettings();
+        if (['showSeconds', 'dualTime', 'dualTimeLayout', 'homeTimezone', 'localLabel', 'dualTimeOrder', 'use24Hour', 'showDate', 'datePosition', 'dateFont', 'dateStyle', 'dateIncludeDay', 'dateIncludeYear'].includes(id)) {
+          prevStructKey = null; // force strict DOM regeneration dynamically
+        }
+        
+        lastRenderedSec = -1; // force an immediate redraw of the time upon variable drift
+      });
+    });
+
+    // --- UI HELPERS ---
+    function initializeCustomSelects() {
+      document.querySelectorAll('.settings-panel select').forEach(selectEl => {
+        selectEl.style.display = 'none';
+        
+        const wrapper = document.createElement('div');
+        wrapper.className = 'custom-select-container';
+        wrapper.style.width = (selectEl.id === 'homeTimezone' || selectEl.id === 'dualTimeLayout' || selectEl.id === 'dualTimeOrder') ? '100%' : '140px';
+        
+        selectEl.parentNode.insertBefore(wrapper, selectEl);
+        wrapper.appendChild(selectEl);
+
+        const trigger = document.createElement('div');
+        trigger.className = 'custom-select-trigger';
+        const triggerText = document.createElement('span');
+        triggerText.innerText = selectEl.options[selectEl.selectedIndex].text;
+        const arrow = document.createElement('div');
+        arrow.className = 'custom-select-arrow';
+        trigger.appendChild(triggerText);
+        trigger.appendChild(arrow);
+        wrapper.appendChild(trigger);
+
+        trigger.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          document.querySelectorAll('.custom-select-container.open').forEach(w => {
+            if (w !== wrapper) w.classList.remove('open');
+          });
+          wrapper.classList.toggle('open');
+        });
+
+        const optionsContainer = document.createElement('div');
+        optionsContainer.className = 'custom-select-options';
+        
+        Array.from(selectEl.options).forEach((opt, idx) => {
+          const optDiv = document.createElement('div');
+          optDiv.className = 'custom-select-option';
+          optDiv.innerText = opt.text;
+          optDiv.dataset.value = opt.value;
+          
+          optDiv.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            selectEl.value = opt.value;
+            selectEl.selectedIndex = idx;
+            triggerText.innerText = opt.text;
+            selectEl.dispatchEvent(new Event('change', { bubbles: true }));
+            selectEl.dispatchEvent(new Event('input', { bubbles: true }));
+            wrapper.classList.remove('open');
+          });
+          optionsContainer.appendChild(optDiv);
+        });
+        
+        wrapper.appendChild(optionsContainer);
+      });
+
+      document.querySelectorAll('.settings-panel select').forEach(selectEl => {
+        selectEl.addEventListener('change', () => { 
+          const triggerText = selectEl.parentNode.querySelector('.custom-select-trigger span');
+          if (triggerText) triggerText.innerText = selectEl.options[selectEl.selectedIndex].text;
+        });
+      });
+
+      document.addEventListener('click', () => {
+        document.querySelectorAll('.custom-select-container.open').forEach(w => {
+          w.classList.remove('open');
+        });
+      });
+    }
+
+    // --- BOOT PROCESS ---
+    function init() {
+      initializeCustomSelects();
+      initSettings();
+      applySettings();
+      
+      // Paint first frame immediately locally, then silently overlay network validation
+      tick(); 
+      unHideCursor();
+
+      if (settings.onlineTime) {
+        syncTime().then(updateIndicator);
+      } else {
+        updateIndicator();
+      }
+    }
+
+    // Kickstart application on load to strictly avoid flashing layout setups
+    window.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>
